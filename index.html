@@ -2183,6 +2183,7 @@
         // ============================================================
         let isRegisterMode = false;
         let currentUser = null;
+        let currentUserBigIntId = null; // 👈 NUEVA VARIABLE PARA GUARDAR EL BIGINT ID
         let isLoggedIn = false;
 
         function toggleForm() {
@@ -2350,27 +2351,12 @@
                         currentUser = data.user;
                         isLoggedIn = true;
 
-                        // Get user profile from users table
-                        const { data: userData, error: userError } = await supabaseClient
-                            .from('users')
-                            .select('*')
-                            .eq('id', data.user.id)
-                            .single();
+                        // 👈 CARGAR EL BIGINT ID
+                        await loadUserData(data.user.id);
 
-                        if (userError) {
-                            console.warn('Could not fetch user profile:', userError);
-                        }
-
-                        // Show app
+                        // Mostrar la app
                         document.getElementById('loginContainer').classList.add('hidden');
                         document.getElementById('appContainer').classList.add('active');
-
-                        const displayName = userData?.full_name || userData?.username || data.user.email;
-                        document.getElementById('userName').textContent = displayName;
-                        document.getElementById('userAvatar').textContent = displayName.charAt(0).toUpperCase();
-
-                        // Load user data
-                        await loadUserData(data.user.id);
                     }
 
                 } catch (error) {
@@ -2400,6 +2386,7 @@
             await supabaseClient.auth.signOut();
             isLoggedIn = false;
             currentUser = null;
+            currentUserBigIntId = null;
             document.getElementById('appContainer').classList.remove('active');
             document.getElementById('loginContainer').classList.remove('hidden');
             document.getElementById('loginForm').reset();
@@ -2474,19 +2461,36 @@
         }
 
         // ============================================================
-        // SUPABASE DATA FUNCTIONS
+        // SUPABASE DATA FUNCTIONS - CORREGIDAS
         // ============================================================
         async function loadUserData(userId) {
             try {
+                // Obtener el user_id (BIGINT) desde la tabla users usando el auth_id (UUID)
+                const { data: userData, error: userError } = await supabaseClient
+                    .from('users')
+                    .select('id, username, full_name')
+                    .eq('auth_id', userId)
+                    .single();
+
+                if (userError) throw userError;
+
+                // Guardar el BIGINT ID
+                currentUserBigIntId = userData.id;
+
+                // Mostrar el nombre del usuario
+                const displayName = userData.full_name || userData.username || currentUser.email;
+                document.getElementById('userName').textContent = displayName;
+                document.getElementById('userAvatar').textContent = displayName.charAt(0).toUpperCase();
+
+                // Cargar transacciones usando el BIGINT ID
                 const now = new Date();
                 const month = now.getMonth() + 1;
                 const year = now.getFullYear();
 
-                // Load transactions
                 const { data: transactionsData, error: transactionsError } = await supabaseClient
                     .from('transactions')
                     .select('*')
-                    .eq('user_id', userId)
+                    .eq('user_id', currentUserBigIntId) // ✅ Usar BIGINT ID
                     .eq('month', month)
                     .eq('year', year)
                     .order('transaction_date', { ascending: false });
@@ -2505,31 +2509,37 @@
 
                 actualizarTodo();
 
-                // Load goals
-                const { data: goalsData, error: goalsError } = await supabaseClient
-                    .from('financial_goals')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .eq('status', 'active');
-
-                if (!goalsError && goalsData) {
-                    console.log('Goals loaded:', goalsData);
-                }
-
             } catch (error) {
                 console.error('Error loading user data:', error);
             }
         }
 
+        // Función CORREGIDA para agregar transacciones
         async function agregarTransaccion(tipo, descripcion, monto) {
             if (!currentUser) {
                 alert('You must be logged in');
                 return;
             }
 
+            // Asegurarse de que tenemos el BIGINT ID
+            if (!currentUserBigIntId) {
+                // Obtener el ID de la tabla users
+                const { data: userData, error: userError } = await supabaseClient
+                    .from('users')
+                    .select('id')
+                    .eq('auth_id', currentUser.id)
+                    .single();
+
+                if (userError || !userData) {
+                    alert('Error al obtener el ID del usuario');
+                    return;
+                }
+                currentUserBigIntId = userData.id;
+            }
+
             const now = new Date();
             const transaccion = {
-                user_id: currentUser.id,
+                user_id: currentUserBigIntId, // ✅ Usar BIGINT ID, no UUID
                 type: tipo,
                 description: descripcion,
                 amount: monto,
@@ -2566,13 +2576,14 @@
             }
         }
 
+        // Función CORREGIDA para eliminar transacciones
         async function eliminarTransaccion(id) {
             try {
                 const { error } = await supabaseClient
                     .from('transactions')
                     .delete()
                     .eq('id', id)
-                    .eq('user_id', currentUser.id);
+                    .eq('user_id', currentUserBigIntId); // ✅ Usar BIGINT ID
 
                 if (error) throw error;
 
@@ -3027,18 +3038,16 @@
         // ============================================================
         document.addEventListener('DOMContentLoaded', function() {
             // Check if user is already logged in
-            supabaseClient.auth.getSession().then(({ data, error }) => {
+            supabaseClient.auth.getSession().then(async ({ data, error }) => {
                 if (data.session) {
                     currentUser = data.session.user;
                     isLoggedIn = true;
+
+                    // Cargar el BIGINT ID
+                    await loadUserData(data.session.user.id);
+
                     document.getElementById('loginContainer').classList.add('hidden');
                     document.getElementById('appContainer').classList.add('active');
-
-                    const displayName = currentUser.user_metadata?.full_name || currentUser.email;
-                    document.getElementById('userName').textContent = displayName;
-                    document.getElementById('userAvatar').textContent = displayName.charAt(0).toUpperCase();
-
-                    loadUserData(currentUser.id);
                 }
             });
 
