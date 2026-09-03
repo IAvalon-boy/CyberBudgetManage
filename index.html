@@ -1177,6 +1177,7 @@
             border: 1px solid rgba(255, 0, 68, 0.2);
         }
 
+        /* ===== TRANSACTIONS SECTION ===== */
         .transactions-section {
             display: grid;
             grid-template-columns: 1fr 1.5fr;
@@ -1961,36 +1962,50 @@
                     </div>
                 </div>
 
-                <div class="transactions-section">
-                    <div class="transaction-form" id="transactionForm">
-                        <h3>▸ ADD TRANSACTION</h3>
+                <!-- ===== TRANSACTIONS SECTION CON LISTAS SEPARADAS ===== -->
+                <div class="transactions-section" style="display:grid;grid-template-columns:1fr 1.5fr;gap:20px;margin-bottom:30px;">
+                    <!-- Columna Izquierda: Formulario -->
+                    <div>
+                        <div class="transaction-form" id="transactionForm">
+                            <h3>▸ ADD TRANSACTION</h3>
 
-                        <div class="tipo-selector" id="tipoSelector">
-                            <button class="tipo-btn" data-tipo="ingreso" onclick="seleccionarTipo('ingreso')">+ INCOME</button>
-                            <button class="tipo-btn" data-tipo="egreso" onclick="seleccionarTipo('egreso')">- EXPENSE</button>
-                        </div>
-
-                        <div class="campos-transaccion" id="camposTransaccion">
-                            <input type="text" id="descripcion" placeholder="DESCRIPTION" required>
-                            <input type="number" id="monto" placeholder="AMOUNT" step="0.01" min="0.01" required>
-                            <button id="btnAgregar">ADD</button>
-                        </div>
-
-                        <div class="confirm-overlay" id="confirmOverlay">
-                            <div class="check-animation">
-                                <svg viewBox="0 0 50 50">
-                                    <polyline points="10,25 22,37 40,13" />
-                                </svg>
+                            <div class="tipo-selector" id="tipoSelector">
+                                <button class="tipo-btn" data-tipo="ingreso" onclick="seleccionarTipo('ingreso')">+ INCOME</button>
+                                <button class="tipo-btn" data-tipo="egreso" onclick="seleccionarTipo('egreso')">- EXPENSE</button>
                             </div>
-                            <div class="mensaje-confirm">TRANSACTION ADDED</div>
-                            <div class="sub-mensaje" id="confirmDetalle">+ $100 · Income</div>
+
+                            <div class="campos-transaccion" id="camposTransaccion">
+                                <input type="text" id="descripcion" placeholder="DESCRIPTION" required>
+                                <input type="number" id="monto" placeholder="AMOUNT" step="0.01" min="0.01" required>
+                                <button id="btnAgregar">ADD</button>
+                            </div>
+
+                            <div class="confirm-overlay" id="confirmOverlay">
+                                <div class="check-animation">
+                                    <svg viewBox="0 0 50 50">
+                                        <polyline points="10,25 22,37 40,13" />
+                                    </svg>
+                                </div>
+                                <div class="mensaje-confirm">TRANSACTION ADDED</div>
+                                <div class="sub-mensaje" id="confirmDetalle">+ $100 · Income</div>
+                            </div>
                         </div>
                     </div>
-                    <div class="transaction-list">
-                        <h3>▸ HISTORY</h3>
-                        <div id="listaTransacciones"></div>
+
+                    <!-- Columna Derecha: Listas de Transacciones -->
+                    <div style="display:flex;flex-direction:column;gap:15px;">
+                        <div class="transaction-list">
+                            <h3>▸ INCOME</h3>
+                            <div id="listaIngresos"></div>
+                        </div>
+
+                        <div class="transaction-list">
+                            <h3>▸ EXPENSES</h3>
+                            <div id="listaEgresos"></div>
+                        </div>
                     </div>
                 </div>
+                <!-- ===== FIN TRANSACTIONS SECTION ===== -->
 
             </div>
 
@@ -2814,7 +2829,7 @@
         }
 
         // ============================================================
-        // LISTA DE TRANSACCIONES - CORREGIDA PARA MOSTRAR INGRESOS Y EGRESOS SEPARADOS
+        // LISTA DE TRANSACCIONES - INGRESOS Y EGRESOS SEPARADOS
         // ============================================================
         function actualizarListaTransacciones() {
             // Obtener todas las transacciones del mes
@@ -2826,6 +2841,11 @@
 
             // Renderizar ingresos
             const ingresosContainer = document.getElementById('listaIngresos');
+            if (!ingresosContainer) {
+                console.warn('Elemento listaIngresos no encontrado');
+                return;
+            }
+
             if (ingresosList.length === 0) {
                 ingresosContainer.innerHTML =
                     '<div style="text-align:center;padding:15px;color:#3a5a7a;font-size:0.7rem;letter-spacing:2px;">NO INCOME</div>';
@@ -2848,6 +2868,11 @@
 
             // Renderizar egresos
             const egresosContainer = document.getElementById('listaEgresos');
+            if (!egresosContainer) {
+                console.warn('Elemento listaEgresos no encontrado');
+                return;
+            }
+
             if (egresosList.length === 0) {
                 egresosContainer.innerHTML =
                     '<div style="text-align:center;padding:15px;color:#3a5a7a;font-size:0.7rem;letter-spacing:2px;">NO EXPENSES</div>';
