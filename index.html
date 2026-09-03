@@ -2179,13 +2179,300 @@
         drawMatrix();
 
         // ============================================================
-        // LOGIN / REGISTER SYSTEM
+        // VARIABLES GLOBALES
         // ============================================================
         let isRegisterMode = false;
         let currentUser = null;
-        let currentUserBigIntId = null; // 👈 NUEVA VARIABLE PARA GUARDAR EL BIGINT ID
+        let currentUserBigIntId = null;
         let isLoggedIn = false;
+        let transacciones = [];
+        let mesActual = new Date().getMonth();
+        let añoActual = new Date().getFullYear();
+        let tipoSeleccionado = null;
 
+        const meses = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+            'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
+        ];
+
+        // ============================================================
+        // FUNCIONES DE UTILIDAD
+        // ============================================================
+        function normalizeTransactionType(tipo) {
+            if (tipo === 'ingreso' || tipo === 'income') return 'income';
+            if (tipo === 'egreso' || tipo === 'expense') return 'expense';
+            return tipo;
+        }
+
+        // ============================================================
+        // FUNCIÓN PARA OBTENER EL BIGINT ID
+        // ============================================================
+        async function getCurrentUserBigIntId() {
+            if (currentUserBigIntId) {
+                return currentUserBigIntId;
+            }
+
+            if (!currentUser) {
+                console.error('No hay usuario logueado');
+                return null;
+            }
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('users')
+                    .select('id')
+                    .eq('auth_id', currentUser.id)
+                    .single();
+
+                if (error) {
+                    console.error('Error obteniendo ID del usuario:', error);
+                    return null;
+                }
+
+                if (data && data.id) {
+                    currentUserBigIntId = data.id;
+                    console.log('✅ BIGINT ID obtenido:', currentUserBigIntId);
+                    return currentUserBigIntId;
+                }
+
+                return null;
+            } catch (error) {
+                console.error('Error:', error);
+                return null;
+            }
+        }
+
+        // ============================================================
+        // FUNCIÓN PARA CREAR PERFIL DE USUARIO
+        // ============================================================
+        async function createUserProfile(userId) {
+            try {
+                const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+                if (authError) throw authError;
+
+                const user = authData.user;
+                const username = user.user_metadata?.username || user.email.split('@')[0];
+                const fullName = user.user_metadata?.full_name || 'User';
+
+                const { data, error } = await supabaseClient
+                    .from('users')
+                    .insert([{
+                        auth_id: userId,
+                        username: username,
+                        email: user.email,
+                        full_name: fullName,
+                        is_active: true
+                    }])
+                    .select();
+
+                if (error) throw error;
+
+                console.log('✅ Perfil de usuario creado:', data);
+
+                if (data && data[0]) {
+                    await supabaseClient
+                        .from('user_settings')
+                        .insert([{
+                            user_id: data[0].id,
+                            currency: 'USD',
+                            monthly_budget: 0
+                        }]);
+
+                    const categories = [
+                        { name: 'Salary', type: 'income', color: '#00ff88', is_default: true },
+                        { name: 'Rent', type: 'expense', color: '#ff0044', is_default: true },
+                        { name: 'Food', type: 'expense', color: '#ffdd00', is_default: false },
+                        { name: 'Transport', type: 'expense', color: '#7b2ffc', is_default: false },
+                        { name: 'Entertainment', type: 'expense', color: '#ff00dd', is_default: false }
+                    ];
+
+                    for (const cat of categories) {
+                        await supabaseClient
+                            .from('categories')
+                            .insert([{
+                                user_id: data[0].id,
+                                name: cat.name,
+                                type: cat.type,
+                                color: cat.color,
+                                is_default: cat.is_default
+                            }]);
+                    }
+                }
+
+                return data;
+            } catch (error) {
+                console.error('Error creating user profile:', error);
+                throw error;
+            }
+        }
+
+        // ============================================================
+        // FUNCIÓN LOAD USER DATA
+        // ============================================================
+        async function loadUserData(userId) {
+            try {
+                let userData;
+                const { data, error } = await supabaseClient
+                    .from('users')
+                    .select('id, username, full_name')
+                    .eq('auth_id', userId)
+                    .single();
+
+                if (error) {
+                    if (error.code === 'PGRST116') {
+                        console.log('Usuario no encontrado en tabla users, creando...');
+                        await createUserProfile(userId);
+                        const { data: retryData, error: retryError } = await supabaseClient
+                            .from('users')
+                            .select('id, username, full_name')
+                            .eq('auth_id', userId)
+                            .single();
+
+                        if (retryError) throw retryError;
+                        userData = retryData;
+                    } else {
+                        throw error;
+                    }
+                } else {
+                    userData = data;
+                }
+
+                currentUserBigIntId = userData.id;
+                console.log('✅ currentUserBigIntId asignado:', currentUserBigIntId);
+
+                const displayName = userData.full_name || userData.username || currentUser.email;
+                document.getElementById('userName').textContent = displayName;
+                document.getElementById('userAvatar').textContent = displayName.charAt(0).toUpperCase();
+
+                const now = new Date();
+                const month = now.getMonth() + 1;
+                const year = now.getFullYear();
+
+                const { data: transactionsData, error: transactionsError } = await supabaseClient
+                    .from('transactions')
+                    .select('*')
+                    .eq('user_id', currentUserBigIntId)
+                    .eq('month', month)
+                    .eq('year', year)
+                    .order('transaction_date', { ascending: false });
+
+                if (transactionsError) throw transactionsError;
+
+                transacciones = transactionsData.map(t => ({
+                    id: t.id,
+                    tipo: t.type,
+                    descripcion: t.description,
+                    monto: t.amount,
+                    fecha: t.transaction_date,
+                    mes: t.month,
+                    año: t.year
+                }));
+
+                actualizarTodo();
+
+            } catch (error) {
+                console.error('Error loading user data:', error);
+                alert('Error cargando datos del usuario: ' + error.message);
+            }
+        }
+
+        // ============================================================
+        // FUNCIÓN AGREGAR TRANSACCIÓN CORREGIDA
+        // ============================================================
+        async function agregarTransaccion(tipo, descripcion, monto) {
+            if (!currentUser) {
+                alert('You must be logged in');
+                return;
+            }
+
+            const bigIntId = await getCurrentUserBigIntId();
+
+            if (!bigIntId) {
+                alert('Error: No se pudo obtener el ID del usuario. Por favor, cierra sesión y vuelve a entrar.');
+                console.error('❌ currentUserBigIntId es null');
+                return;
+            }
+
+            console.log('✅ Usando BIGINT ID:', bigIntId);
+
+            const tipoNormalizado = normalizeTransactionType(tipo);
+
+            const now = new Date();
+            const transaccion = {
+                user_id: bigIntId,
+                type: tipoNormalizado,
+                description: descripcion,
+                amount: monto,
+                month: now.getMonth() + 1,
+                year: now.getFullYear(),
+                transaction_date: now.toISOString()
+            };
+
+            console.log('📝 Transacción a guardar:', transaccion);
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('transactions')
+                    .insert([transaccion])
+                    .select();
+
+                if (error) {
+                    console.error('❌ Error de Supabase:', error);
+                    throw error;
+                }
+
+                if (data && data[0]) {
+                    const newTrans = {
+                        id: data[0].id,
+                        tipo: data[0].type,
+                        descripcion: data[0].description,
+                        monto: data[0].amount,
+                        fecha: data[0].transaction_date,
+                        mes: data[0].month,
+                        año: data[0].year
+                    };
+                    transacciones.push(newTrans);
+                    guardarYActualizar();
+                    console.log('✅ Transacción guardada:', newTrans);
+                }
+
+            } catch (error) {
+                console.error('❌ Error al guardar transacción:', error);
+                alert('Error saving transaction: ' + error.message);
+            }
+        }
+
+        // ============================================================
+        // FUNCIÓN ELIMINAR TRANSACCIÓN CORREGIDA
+        // ============================================================
+        async function eliminarTransaccion(id) {
+            const bigIntId = await getCurrentUserBigIntId();
+
+            if (!bigIntId) {
+                alert('Error: No se pudo obtener el ID del usuario.');
+                return;
+            }
+
+            try {
+                const { error } = await supabaseClient
+                    .from('transactions')
+                    .delete()
+                    .eq('id', id)
+                    .eq('user_id', bigIntId);
+
+                if (error) throw error;
+
+                transacciones = transacciones.filter(t => t.id !== id);
+                guardarYActualizar();
+
+            } catch (error) {
+                console.error('Error deleting transaction:', error);
+                alert('Error deleting transaction: ' + error.message);
+            }
+        }
+
+        // ============================================================
+        // FUNCIONES DE LOGIN / REGISTER
+        // ============================================================
         function toggleForm() {
             isRegisterMode = !isRegisterMode;
             const loginFields = document.getElementById('loginFields');
@@ -2249,6 +2536,28 @@
             }
         }
 
+        function fillDemo() {
+            document.getElementById('loginEmail').value = 'admin@cyberbudget.com';
+            document.getElementById('loginPassword').value = 'admin123';
+            document.querySelectorAll('.field input').forEach(inp => inp.classList.remove('error'));
+            document.getElementById('loginError').classList.remove('visible');
+        }
+
+        async function handleLogout() {
+            await supabaseClient.auth.signOut();
+            isLoggedIn = false;
+            currentUser = null;
+            currentUserBigIntId = null;
+            document.getElementById('appContainer').classList.remove('active');
+            document.getElementById('loginContainer').classList.remove('hidden');
+            document.getElementById('loginForm').reset();
+            document.querySelectorAll('.field input').forEach(inp => inp.classList.remove('error'));
+            document.getElementById('loginError').classList.remove('visible');
+        }
+
+        // ============================================================
+        // HANDLE LOGIN
+        // ============================================================
         async function handleLogin(e) {
             e.preventDefault();
 
@@ -2351,10 +2660,8 @@
                         currentUser = data.user;
                         isLoggedIn = true;
 
-                        // 👈 CARGAR EL BIGINT ID
                         await loadUserData(data.user.id);
 
-                        // Mostrar la app
                         document.getElementById('loginContainer').classList.add('hidden');
                         document.getElementById('appContainer').classList.add('active');
                     }
@@ -2367,7 +2674,7 @@
                     document.querySelector('.login-box').style.animation = 'none';
                     setTimeout(() => {
                         document.querySelector('.login-box').style.animation =
-                        'loginFadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+                            'loginFadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
                     }, 10);
                 }
 
@@ -2375,41 +2682,9 @@
             }
         }
 
-        function fillDemo() {
-            document.getElementById('loginEmail').value = 'admin@cyberbudget.com';
-            document.getElementById('loginPassword').value = 'admin123';
-            document.querySelectorAll('.field input').forEach(inp => inp.classList.remove('error'));
-            document.getElementById('loginError').classList.remove('visible');
-        }
-
-        async function handleLogout() {
-            await supabaseClient.auth.signOut();
-            isLoggedIn = false;
-            currentUser = null;
-            currentUserBigIntId = null;
-            document.getElementById('appContainer').classList.remove('active');
-            document.getElementById('loginContainer').classList.remove('hidden');
-            document.getElementById('loginForm').reset();
-            document.querySelectorAll('.field input').forEach(inp => inp.classList.remove('error'));
-            document.getElementById('loginError').classList.remove('visible');
-        }
-
         // ============================================================
-        // DATA & FINANCIAL LOGIC
+        // FUNCIONES DE TRANSACCIONES UI
         // ============================================================
-        let transacciones = [];
-        let mesActual = new Date().getMonth();
-        let añoActual = new Date().getFullYear();
-
-        const meses = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
-            'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
-        ];
-
-        // ============================================================
-        // TRANSACTION FLOW
-        // ============================================================
-        let tipoSeleccionado = null;
-
         function seleccionarTipo(tipo) {
             tipoSeleccionado = tipo;
             const selector = document.getElementById('tipoSelector');
@@ -2460,148 +2735,12 @@
             }, 2000);
         }
 
-        // ============================================================
-        // SUPABASE DATA FUNCTIONS - CORREGIDAS
-        // ============================================================
-        async function loadUserData(userId) {
-            try {
-                // Obtener el user_id (BIGINT) desde la tabla users usando el auth_id (UUID)
-                const { data: userData, error: userError } = await supabaseClient
-                    .from('users')
-                    .select('id, username, full_name')
-                    .eq('auth_id', userId)
-                    .single();
-
-                if (userError) throw userError;
-
-                // Guardar el BIGINT ID
-                currentUserBigIntId = userData.id;
-
-                // Mostrar el nombre del usuario
-                const displayName = userData.full_name || userData.username || currentUser.email;
-                document.getElementById('userName').textContent = displayName;
-                document.getElementById('userAvatar').textContent = displayName.charAt(0).toUpperCase();
-
-                // Cargar transacciones usando el BIGINT ID
-                const now = new Date();
-                const month = now.getMonth() + 1;
-                const year = now.getFullYear();
-
-                const { data: transactionsData, error: transactionsError } = await supabaseClient
-                    .from('transactions')
-                    .select('*')
-                    .eq('user_id', currentUserBigIntId) // ✅ Usar BIGINT ID
-                    .eq('month', month)
-                    .eq('year', year)
-                    .order('transaction_date', { ascending: false });
-
-                if (transactionsError) throw transactionsError;
-
-                transacciones = transactionsData.map(t => ({
-                    id: t.id,
-                    tipo: t.type,
-                    descripcion: t.description,
-                    monto: t.amount,
-                    fecha: t.transaction_date,
-                    mes: t.month,
-                    año: t.year
-                }));
-
-                actualizarTodo();
-
-            } catch (error) {
-                console.error('Error loading user data:', error);
-            }
-        }
-
-        // Función CORREGIDA para agregar transacciones
-        async function agregarTransaccion(tipo, descripcion, monto) {
-            if (!currentUser) {
-                alert('You must be logged in');
-                return;
-            }
-
-            // Asegurarse de que tenemos el BIGINT ID
-            if (!currentUserBigIntId) {
-                // Obtener el ID de la tabla users
-                const { data: userData, error: userError } = await supabaseClient
-                    .from('users')
-                    .select('id')
-                    .eq('auth_id', currentUser.id)
-                    .single();
-
-                if (userError || !userData) {
-                    alert('Error al obtener el ID del usuario');
-                    return;
-                }
-                currentUserBigIntId = userData.id;
-            }
-
-            const now = new Date();
-            const transaccion = {
-                user_id: currentUserBigIntId, // ✅ Usar BIGINT ID, no UUID
-                type: tipo,
-                description: descripcion,
-                amount: monto,
-                month: now.getMonth() + 1,
-                year: now.getFullYear(),
-                transaction_date: now.toISOString()
-            };
-
-            try {
-                const { data, error } = await supabaseClient
-                    .from('transactions')
-                    .insert([transaccion])
-                    .select();
-
-                if (error) throw error;
-
-                if (data && data[0]) {
-                    const newTrans = {
-                        id: data[0].id,
-                        tipo: data[0].type,
-                        descripcion: data[0].description,
-                        monto: data[0].amount,
-                        fecha: data[0].transaction_date,
-                        mes: data[0].month,
-                        año: data[0].year
-                    };
-                    transacciones.push(newTrans);
-                    guardarYActualizar();
-                }
-
-            } catch (error) {
-                console.error('Error adding transaction:', error);
-                alert('Error saving transaction: ' + error.message);
-            }
-        }
-
-        // Función CORREGIDA para eliminar transacciones
-        async function eliminarTransaccion(id) {
-            try {
-                const { error } = await supabaseClient
-                    .from('transactions')
-                    .delete()
-                    .eq('id', id)
-                    .eq('user_id', currentUserBigIntId); // ✅ Usar BIGINT ID
-
-                if (error) throw error;
-
-                transacciones = transacciones.filter(t => t.id !== id);
-                guardarYActualizar();
-
-            } catch (error) {
-                console.error('Error deleting transaction:', error);
-                alert('Error deleting transaction: ' + error.message);
-            }
-        }
-
         function guardarYActualizar() {
             actualizarTodo();
         }
 
         // ============================================================
-        // FILTER BY MONTH
+        // FILTROS Y TOTALES
         // ============================================================
         function getTransaccionesMes() {
             return transacciones.filter(t => t.mes === mesActual + 1 && t.año === añoActual);
@@ -2617,7 +2756,7 @@
         }
 
         // ============================================================
-        // UPDATE EVERYTHING
+        // ACTUALIZAR TODO
         // ============================================================
         function actualizarTodo() {
             actualizarMes();
@@ -2632,7 +2771,7 @@
         }
 
         // ============================================================
-        // MONTH
+        // MES
         // ============================================================
         function actualizarMes() {
             document.getElementById('mesDisplay').innerHTML = meses[mesActual] + ' <span>' + añoActual + '</span>';
@@ -2655,7 +2794,7 @@
         }
 
         // ============================================================
-        // TOTALS
+        // TOTALES
         // ============================================================
         function actualizarTotales() {
             const t = getTotales();
@@ -2675,7 +2814,7 @@
         }
 
         // ============================================================
-        // TRANSACTION LIST
+        // LISTA DE TRANSACCIONES
         // ============================================================
         function actualizarListaTransacciones() {
             const filtradas = getTransaccionesMes().sort((a, b) => b.id - a.id);
@@ -2692,19 +2831,19 @@
                 const fecha = new Date(t.fecha);
                 const fechaStr = fecha.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
                 html += `
-                    <div class="transaction-item ${t.tipo}">
-                        <span class="desc">${t.descripcion}</span>
-                        <span class="monto ${cls}">${signo}${t.monto.toFixed(2)}</span>
-                        <span class="fecha">${fechaStr}</span>
-                        <button class="eliminar" onclick="eliminarTransaccion(${t.id})">×</button>
-                    </div>
-                `;
+                        <div class="transaction-item ${t.tipo}">
+                            <span class="desc">${t.descripcion}</span>
+                            <span class="monto ${cls}">${signo}${t.monto.toFixed(2)}</span>
+                            <span class="fecha">${fechaStr}</span>
+                            <button class="eliminar" onclick="eliminarTransaccion(${t.id})">×</button>
+                        </div>
+                    `;
             });
             container.innerHTML = html;
         }
 
         // ============================================================
-        // CHART
+        // GRÁFICO
         // ============================================================
         function actualizarGrafico() {
             const filtradas = getTransaccionesMes();
@@ -2730,18 +2869,18 @@
                 const hIng = maxVal > 0 ? (ing / maxVal * 100) : 0;
                 const hEg = maxVal > 0 ? (eg / maxVal * 100) : 0;
                 html += `
-                    <div class="chart-bar-group">
-                        ${ing > 0 ? `<div class="chart-bar ingreso" style="height:${hIng}%;"></div>` : ''}
-                        ${eg > 0 ? `<div class="chart-bar egreso" style="height:${hEg}%;"></div>` : ''}
-                        <span class="chart-day">${d}</span>
-                    </div>
-                `;
+                        <div class="chart-bar-group">
+                            ${ing > 0 ? `<div class="chart-bar ingreso" style="height:${hIng}%;"></div>` : ''}
+                            ${eg > 0 ? `<div class="chart-bar egreso" style="height:${hEg}%;"></div>` : ''}
+                            <span class="chart-day">${d}</span>
+                        </div>
+                    `;
             }
             container.innerHTML = html;
         }
 
         // ============================================================
-        // PROJECTIONS
+        // PROYECCIONES
         // ============================================================
         function actualizarProyecciones() {
             const t = getTotales();
@@ -2770,7 +2909,7 @@
                 info.textContent = '⏳ Waiting for more data';
             } else {
                 info.textContent =
-                `📊 Based on ${diaActual} of ${diasMes} days (${Math.round(diaActual/diasMes*100)}% of month)`;
+                    `📊 Based on ${diaActual} of ${diasMes} days (${Math.round(diaActual/diasMes*100)}% of month)`;
             }
 
             const anualIngresos = proyIngresos * 12;
@@ -2786,42 +2925,42 @@
             const proy6 = t.disponible * 6;
 
             document.getElementById('proyeccion3Meses').innerHTML = `
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-                    <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
-                        <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">INCOME</div>
-                        <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-green);">+${Math.round(t.ingresos * 3)}</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                        <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
+                            <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">INCOME</div>
+                            <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-green);">+${Math.round(t.ingresos * 3)}</div>
+                        </div>
+                        <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
+                            <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">EXPENSES</div>
+                            <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-red);">-${Math.round(t.egresos * 3)}</div>
+                        </div>
+                        <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
+                            <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">AVAILABLE</div>
+                            <div style="font-family:'Orbitron',monospace;font-size:1rem;color:${proy3 >= 0 ? 'var(--cyber-green)' : 'var(--cyber-red)'};">${(proy3 >= 0 ? '+' : '-')} ${Math.abs(Math.round(proy3))}</div>
+                        </div>
                     </div>
-                    <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
-                        <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">EXPENSES</div>
-                        <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-red);">-${Math.round(t.egresos * 3)}</div>
-                    </div>
-                    <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
-                        <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">AVAILABLE</div>
-                        <div style="font-family:'Orbitron',monospace;font-size:1rem;color:${proy3 >= 0 ? 'var(--cyber-green)' : 'var(--cyber-red)'};">${(proy3 >= 0 ? '+' : '-')} ${Math.abs(Math.round(proy3))}</div>
-                    </div>
-                </div>
-            `;
+                `;
 
             document.getElementById('proyeccion6Meses').innerHTML = `
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-                    <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
-                        <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">INCOME</div>
-                        <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-green);">+${Math.round(t.ingresos * 6)}</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                        <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
+                            <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">INCOME</div>
+                            <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-green);">+${Math.round(t.ingresos * 6)}</div>
+                        </div>
+                        <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
+                            <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">EXPENSES</div>
+                            <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-red);">-${Math.round(t.egresos * 6)}</div>
+                        </div>
+                        <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
+                            <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">AVAILABLE</div>
+                            <div style="font-family:'Orbitron',monospace;font-size:1rem;color:${proy6 >= 0 ? 'var(--cyber-green)' : 'var(--cyber-red)'};">${(proy6 >= 0 ? '+' : '-')} ${Math.abs(Math.round(proy6))}</div>
+                        </div>
                     </div>
-                    <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
-                        <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">EXPENSES</div>
-                        <div style="font-family:'Orbitron',monospace;font-size:1rem;color:var(--cyber-red);">-${Math.round(t.egresos * 6)}</div>
-                    </div>
-                    <div style="padding:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(0,100,255,0.05);">
-                        <div style="font-size:0.5rem;color:#3a5a7a;letter-spacing:3px;">AVAILABLE</div>
-                        <div style="font-family:'Orbitron',monospace;font-size:1rem;color:${proy6 >= 0 ? 'var(--cyber-green)' : 'var(--cyber-red)'};">${(proy6 >= 0 ? '+' : '-')} ${Math.abs(Math.round(proy6))}</div>
-                    </div>
-                </div>
-            `;
+                `;
         }
 
         // ============================================================
-        // RECOMMENDATIONS
+        // RECOMENDACIONES
         // ============================================================
         function actualizarRecomendaciones() {
             const t = getTotales();
@@ -2883,13 +3022,13 @@
             let html = '';
             recomendaciones.forEach(r => {
                 html += `
-                    <div class="recommendation-item">
-                        <div class="tipo-${r.tipo}">
-                            <div class="mensaje">${r.mensaje}</div>
-                            <div class="accion">▸ ${r.accion}</div>
+                        <div class="recommendation-item">
+                            <div class="tipo-${r.tipo}">
+                                <div class="mensaje">${r.mensaje}</div>
+                                <div class="accion">▸ ${r.accion}</div>
+                            </div>
                         </div>
-                    </div>
-                `;
+                    `;
             });
             container.innerHTML = html;
 
@@ -2903,18 +3042,18 @@
             inversiones.forEach(inv => {
                 const cls = inv.riesgo === 'Low' ? 'bajo' : inv.riesgo === 'Medium' ? 'medio' : 'medio-alto';
                 invHtml += `
-                    <div style="padding:8px 0;border-bottom:1px solid rgba(0,100,255,0.05);display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-size:0.8rem;">${inv.nombre}</span>
-                        <span style="font-family:'Orbitron',monospace;font-size:0.85rem;color:var(--cyber-green);">${inv.tasa}</span>
-                        <span class="riesgo ${cls}" style="font-size:0.45rem;padding:2px 8px;">${inv.riesgo}</span>
-                    </div>
-                `;
+                        <div style="padding:8px 0;border-bottom:1px solid rgba(0,100,255,0.05);display:flex;justify-content:space-between;align-items:center;">
+                            <span style="font-size:0.8rem;">${inv.nombre}</span>
+                            <span style="font-family:'Orbitron',monospace;font-size:0.85rem;color:var(--cyber-green);">${inv.tasa}</span>
+                            <span class="riesgo ${cls}" style="font-size:0.45rem;padding:2px 8px;">${inv.riesgo}</span>
+                        </div>
+                    `;
             });
             invContainer.innerHTML = invHtml;
         }
 
         // ============================================================
-        // INVESTMENTS
+        // INVERSIONES
         // ============================================================
         function actualizarInversiones() {
             const container = document.getElementById('investmentsGrid');
@@ -2931,14 +3070,14 @@
             inversiones.forEach(inv => {
                 const cls = inv.riesgo === 'Low' ? 'bajo' : inv.riesgo === 'Medium' ? 'medio' : 'medio-alto';
                 html += `
-                    <div class="investment-item">
-                        <div class="nombre">${inv.nombre}</div>
-                        <div class="tasa">${inv.tasa}</div>
-                        <div class="detalle">${inv.desc}</div>
-                        <div class="detalle">💰 From $${inv.minimo} · ${inv.plazo}</div>
-                        <span class="riesgo ${cls}">${inv.riesgo}</span>
-                    </div>
-                `;
+                        <div class="investment-item">
+                            <div class="nombre">${inv.nombre}</div>
+                            <div class="tasa">${inv.tasa}</div>
+                            <div class="detalle">${inv.desc}</div>
+                            <div class="detalle">💰 From $${inv.minimo} · ${inv.plazo}</div>
+                            <span class="riesgo ${cls}">${inv.riesgo}</span>
+                        </div>
+                    `;
             });
             container.innerHTML = html;
         }
@@ -2958,9 +3097,9 @@
             const resultado = document.getElementById('simulacionResultado');
             resultado.style.display = 'block';
             document.getElementById('simulacionTexto').innerHTML = `
-                Invest <strong>$${monto.toFixed(2)}</strong> → Earn <strong style="color:var(--cyber-green);">$${ganancia.toFixed(2)}</strong> → Total <strong style="color:var(--cyber-cyan);">$${total.toFixed(2)}</strong>
-                <br><span style="font-size:0.6rem;color:#3a5a7a;">12% annual rate</span>
-            `;
+                    Invest <strong>$${monto.toFixed(2)}</strong> → Earn <strong style="color:var(--cyber-green);">$${ganancia.toFixed(2)}</strong> → Total <strong style="color:var(--cyber-cyan);">$${total.toFixed(2)}</strong>
+                    <br><span style="font-size:0.6rem;color:#3a5a7a;">12% annual rate</span>
+                `;
         }
 
         // ============================================================
@@ -2992,7 +3131,7 @@
 
             document.getElementById('meta6Meses').textContent = (meta6 >= 0 ? '+' : '-') + ' ' + Math.abs(Math.round(meta6));
             document.getElementById('meta12Meses').textContent = (meta12 >= 0 ? '+' : '-') + ' ' + Math.abs(Math.round(
-            meta12));
+                meta12));
             document.getElementById('inversionRecomendada').textContent = (inversionRec >= 0 ? '+' : '-') + ' ' + Math.abs(
                 Math.round(inversionRec));
         }
@@ -3023,12 +3162,12 @@
             let html = '';
             inversiones.forEach(inv => {
                 html += `
-                    <div class="inversion-real">
-                        <div class="nombre">${inv.nombre}</div>
-                        <div class="detalle">${inv.detalle}</div>
-                        <span class="rendimiento">${inv.rendimiento}</span>
-                    </div>
-                `;
+                        <div class="inversion-real">
+                            <div class="nombre">${inv.nombre}</div>
+                            <div class="detalle">${inv.detalle}</div>
+                            <span class="rendimiento">${inv.rendimiento}</span>
+                        </div>
+                    `;
             });
             container.innerHTML = html;
         }
@@ -3037,21 +3176,16 @@
         // INITIALIZATION
         // ============================================================
         document.addEventListener('DOMContentLoaded', function() {
-            // Check if user is already logged in
             supabaseClient.auth.getSession().then(async ({ data, error }) => {
                 if (data.session) {
                     currentUser = data.session.user;
                     isLoggedIn = true;
-
-                    // Cargar el BIGINT ID
                     await loadUserData(data.session.user.id);
-
                     document.getElementById('loginContainer').classList.add('hidden');
                     document.getElementById('appContainer').classList.add('active');
                 }
             });
 
-            // Navigation
             document.querySelectorAll('.nav-links a[data-screen]').forEach(link => {
                 link.addEventListener('click', function() {
                     document.querySelectorAll('.nav-links a').forEach(l => l.classList.remove('active'));
@@ -3063,7 +3197,6 @@
                 });
             });
 
-            // Add transaction button
             document.getElementById('btnAgregar').addEventListener('click', function() {
                 const descripcion = document.getElementById('descripcion').value.trim();
                 const monto = parseFloat(document.getElementById('monto').value);
@@ -3082,7 +3215,6 @@
                 mostrarConfirmacion(tipoSeleccionado, descripcion, monto);
             });
 
-            // Enter key support
             document.getElementById('descripcion').addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') {
                     document.getElementById('monto').focus();
@@ -3095,7 +3227,6 @@
                 }
             });
 
-            // Investment simulator
             document.getElementById('montoInvertir').addEventListener('input', function() {
                 const monto = parseFloat(this.value) || 0;
                 const ganancia = monto * 0.12;
