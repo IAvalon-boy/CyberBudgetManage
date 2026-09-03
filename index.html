@@ -2122,15 +2122,18 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+    </script>
     <script>
         // ============================================================
         // SUPABASE CONFIGURATION
         // ============================================================
         const SUPABASE_URL = 'https://glviuhthfszufozrsgxf.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdsdml1aHRoZnN6dWZvenJzZ3hmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0NTc4MTUsImV4cCI6MjEwNDAzMzgxNX0.a_12jM0aIK8lcGu2_6-SyYh9t9-VcaylFyvxEmGATUY';
+        const SUPABASE_ANON_KEY =
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdsdml1aHRoZnN6dWZvenJzZ3hmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0NTc4MTUsImV4cCI6MjEwNDAzMzgxNX0.a_12jM0aIK8lcGu2_6-SyYh9t9-VcaylFyvxEmGATUY';
 
-        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // Crear el cliente Supabase
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // ============================================================
         // MATRIX RAIN
@@ -2284,8 +2287,7 @@
                 btn.classList.add('loading');
 
                 try {
-                    // Register with Supabase Auth
-                    const { data, error } = await supabase.auth.signUp({
+                    const { data, error } = await supabaseClient.auth.signUp({
                         email: email,
                         password: password,
                         options: {
@@ -2301,7 +2303,6 @@
                     if (error) throw error;
 
                     if (data.user) {
-                        // The trigger handle_new_user() will create the profile in users table
                         registerError.style.color = 'var(--cyber-green)';
                         registerError.textContent = '✅ Account created! Please login.';
                         registerError.classList.add('visible');
@@ -2336,7 +2337,7 @@
                 btn.classList.add('loading');
 
                 try {
-                    const { data, error } = await supabase.auth.signInWithPassword({
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({
                         email: email,
                         password: password
                     });
@@ -2350,7 +2351,7 @@
                         isLoggedIn = true;
 
                         // Get user profile from users table
-                        const { data: userData, error: userError } = await supabase
+                        const { data: userData, error: userError } = await supabaseClient
                             .from('users')
                             .select('*')
                             .eq('id', data.user.id)
@@ -2379,7 +2380,8 @@
 
                     document.querySelector('.login-box').style.animation = 'none';
                     setTimeout(() => {
-                        document.querySelector('.login-box').style.animation = 'loginFadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+                        document.querySelector('.login-box').style.animation =
+                        'loginFadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
                     }, 10);
                 }
 
@@ -2395,7 +2397,7 @@
         }
 
         async function handleLogout() {
-            await supabase.auth.signOut();
+            await supabaseClient.auth.signOut();
             isLoggedIn = false;
             currentUser = null;
             document.getElementById('appContainer').classList.remove('active');
@@ -2481,7 +2483,7 @@
                 const year = now.getFullYear();
 
                 // Load transactions
-                const { data: transactionsData, error: transactionsError } = await supabase
+                const { data: transactionsData, error: transactionsError } = await supabaseClient
                     .from('transactions')
                     .select('*')
                     .eq('user_id', userId)
@@ -2504,7 +2506,7 @@
                 actualizarTodo();
 
                 // Load goals
-                const { data: goalsData, error: goalsError } = await supabase
+                const { data: goalsData, error: goalsError } = await supabaseClient
                     .from('financial_goals')
                     .select('*')
                     .eq('user_id', userId)
@@ -2537,7 +2539,7 @@
             };
 
             try {
-                const { data, error } = await supabase
+                const { data, error } = await supabaseClient
                     .from('transactions')
                     .insert([transaccion])
                     .select();
@@ -2566,7 +2568,7 @@
 
         async function eliminarTransaccion(id) {
             try {
-                const { error } = await supabase
+                const { error } = await supabaseClient
                     .from('transactions')
                     .delete()
                     .eq('id', id)
@@ -2756,7 +2758,8 @@
             if (diaActual === 1 || t.ingresos === 0) {
                 info.textContent = '⏳ Waiting for more data';
             } else {
-                info.textContent = `📊 Based on ${diaActual} of ${diasMes} days (${Math.round(diaActual/diasMes*100)}% of month)`;
+                info.textContent =
+                `📊 Based on ${diaActual} of ${diasMes} days (${Math.round(diaActual/diasMes*100)}% of month)`;
             }
 
             const anualIngresos = proyIngresos * 12;
@@ -3024,7 +3027,7 @@
         // ============================================================
         document.addEventListener('DOMContentLoaded', function() {
             // Check if user is already logged in
-            supabase.auth.getSession().then(({ data, error }) => {
+            supabaseClient.auth.getSession().then(({ data, error }) => {
                 if (data.session) {
                     currentUser = data.session.user;
                     isLoggedIn = true;
