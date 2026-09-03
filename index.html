@@ -1773,11 +1773,11 @@
                 <div id="loginFields">
                     <div class="field">
                         <label>Email</label>
-                        <input type="email" id="loginEmail" placeholder="your@email.com" value="admin@cyberbudget.com" required>
+                        <input type="email" id="loginEmail" placeholder="your@email.com" value="demo@cyberbudget.com" required>
                     </div>
                     <div class="field">
                         <label>Password</label>
-                        <input type="password" id="loginPassword" placeholder="Enter your password" value="admin123" required>
+                        <input type="password" id="loginPassword" placeholder="Enter your password" value="demo123" required>
                         <div class="error-msg" id="loginError">Invalid credentials. Please try again.</div>
                     </div>
                 </div>
@@ -1822,7 +1822,7 @@
                 </div>
 
                 <div class="login-options">
-                    <span>Demo: admin@cyberbudget.com / admin123</span>
+                    <span>Demo: demo@cyberbudget.com / demo123</span>
                     <a onclick="fillDemo()">Fill Demo</a>
                 </div>
 
@@ -1853,8 +1853,8 @@
                 <nav class="nav-links">
                     <a data-screen="projections">Projections</a>
                     <div class="user-info">
-                        <span class="avatar" id="userAvatar">A</span>
-                        <span id="userName">Admin</span>
+                        <span class="avatar" id="userAvatar">D</span>
+                        <span id="userName">Demo</span>
                         <button class="logout-btn" onclick="handleLogout()">EXIT</button>
                     </div>
                     <span class="status-indicator">
@@ -2376,7 +2376,7 @@
         }
 
         // ============================================================
-        // FUNCIÓN AGREGAR TRANSACCIÓN CORREGIDA
+        // FUNCIÓN AGREGAR TRANSACCIÓN
         // ============================================================
         async function agregarTransaccion(tipo, descripcion, monto) {
             if (!currentUser) {
@@ -2442,7 +2442,7 @@
         }
 
         // ============================================================
-        // FUNCIÓN ELIMINAR TRANSACCIÓN CORREGIDA
+        // FUNCIÓN ELIMINAR TRANSACCIÓN
         // ============================================================
         async function eliminarTransaccion(id) {
             const bigIntId = await getCurrentUserBigIntId();
@@ -2537,8 +2537,8 @@
         }
 
         function fillDemo() {
-            document.getElementById('loginEmail').value = 'admin@cyberbudget.com';
-            document.getElementById('loginPassword').value = 'admin123';
+            document.getElementById('loginEmail').value = 'demo@cyberbudget.com';
+            document.getElementById('loginPassword').value = 'demo123';
             document.querySelectorAll('.field input').forEach(inp => inp.classList.remove('error'));
             document.getElementById('loginError').classList.remove('visible');
         }
@@ -2748,8 +2748,8 @@
 
         function getTotales() {
             const filtradas = getTransaccionesMes();
-            const ingresos = filtradas.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto, 0);
-            const egresos = filtradas.filter(t => t.tipo === 'egreso').reduce((s, t) => s + t.monto, 0);
+            const ingresos = filtradas.filter(t => t.tipo === 'income').reduce((s, t) => s + t.monto, 0);
+            const egresos = filtradas.filter(t => t.tipo === 'expense').reduce((s, t) => s + t.monto, 0);
             const disponible = ingresos - egresos;
             const porcentaje = ingresos > 0 ? (egresos / ingresos * 100) : 0;
             return { ingresos, egresos, disponible, porcentaje };
@@ -2814,32 +2814,59 @@
         }
 
         // ============================================================
-        // LISTA DE TRANSACCIONES
+        // LISTA DE TRANSACCIONES - CORREGIDA PARA MOSTRAR INGRESOS Y EGRESOS SEPARADOS
         // ============================================================
         function actualizarListaTransacciones() {
+            // Obtener todas las transacciones del mes
             const filtradas = getTransaccionesMes().sort((a, b) => b.id - a.id);
-            const container = document.getElementById('listaTransacciones');
-            if (filtradas.length === 0) {
-                container.innerHTML =
-                    '<div style="text-align:center;padding:20px;color:#3a5a7a;font-size:0.75rem;letter-spacing:3px;">NO TRANSACTIONS</div>';
-                return;
-            }
-            let html = '';
-            filtradas.forEach(t => {
-                const signo = t.tipo === 'ingreso' ? '+' : '-';
-                const cls = t.tipo === 'ingreso' ? 'positive' : 'negative';
-                const fecha = new Date(t.fecha);
-                const fechaStr = fecha.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
-                html += `
-                        <div class="transaction-item ${t.tipo}">
+
+            // Separar ingresos y egresos
+            const ingresosList = filtradas.filter(t => t.tipo === 'income' || t.tipo === 'ingreso');
+            const egresosList = filtradas.filter(t => t.tipo === 'expense' || t.tipo === 'egreso');
+
+            // Renderizar ingresos
+            const ingresosContainer = document.getElementById('listaIngresos');
+            if (ingresosList.length === 0) {
+                ingresosContainer.innerHTML =
+                    '<div style="text-align:center;padding:15px;color:#3a5a7a;font-size:0.7rem;letter-spacing:2px;">NO INCOME</div>';
+            } else {
+                let html = '';
+                ingresosList.forEach(t => {
+                    const fecha = new Date(t.fecha);
+                    const fechaStr = fecha.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+                    html += `
+                        <div class="transaction-item ingreso">
                             <span class="desc">${t.descripcion}</span>
-                            <span class="monto ${cls}">${signo}${t.monto.toFixed(2)}</span>
+                            <span class="monto positive">+${t.monto.toFixed(2)}</span>
                             <span class="fecha">${fechaStr}</span>
                             <button class="eliminar" onclick="eliminarTransaccion(${t.id})">×</button>
                         </div>
                     `;
-            });
-            container.innerHTML = html;
+                });
+                ingresosContainer.innerHTML = html;
+            }
+
+            // Renderizar egresos
+            const egresosContainer = document.getElementById('listaEgresos');
+            if (egresosList.length === 0) {
+                egresosContainer.innerHTML =
+                    '<div style="text-align:center;padding:15px;color:#3a5a7a;font-size:0.7rem;letter-spacing:2px;">NO EXPENSES</div>';
+            } else {
+                let html = '';
+                egresosList.forEach(t => {
+                    const fecha = new Date(t.fecha);
+                    const fechaStr = fecha.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+                    html += `
+                        <div class="transaction-item egreso">
+                            <span class="desc">${t.descripcion}</span>
+                            <span class="monto negative">-${t.monto.toFixed(2)}</span>
+                            <span class="fecha">${fechaStr}</span>
+                            <button class="eliminar" onclick="eliminarTransaccion(${t.id})">×</button>
+                        </div>
+                    `;
+                });
+                egresosContainer.innerHTML = html;
+            }
         }
 
         // ============================================================
@@ -2855,7 +2882,7 @@
             filtradas.forEach(t => {
                 const dia = new Date(t.fecha).getDate();
                 if (datos[dia]) {
-                    if (t.tipo === 'ingreso') datos[dia].ingresos += t.monto;
+                    if (t.tipo === 'income' || t.tipo === 'ingreso') datos[dia].ingresos += t.monto;
                     else datos[dia].egresos += t.monto;
                 }
             });
